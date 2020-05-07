@@ -48,6 +48,8 @@ class Stream: NSObject, Object {
     
     private var backgroundImage: CIImage?
     
+    private lazy var visionModel = try! VNCoreMLModel(for: DeepLabV3().model)
+    
     private lazy var mtlDevice = MTLCreateSystemDefaultDevice()!
     
     private lazy var capture = VideoCapture()
@@ -215,7 +217,7 @@ extension Stream: VideoCaptureDelegate {
     }
     
     func byteArrayToCGImage(
-        raw: UnsafeMutablePointer<UInt8>, w: Int,h: Int
+        raw: UnsafePointer<UInt8>, w: Int,h: Int
     ) -> CGImage? {
 
         let bytesPerPixel: Int = 1
@@ -243,40 +245,50 @@ extension Stream: VideoCaptureDelegate {
     }
     
     func observeAsynchronously(onPixelBuffer pixelBuffer: CVPixelBuffer) {
-        let ciImage = CIImage(cvImageBuffer: pixelBuffer)
-        let width = CVPixelBufferGetWidth(pixelBuffer)
-        let height = CVPixelBufferGetHeight(pixelBuffer)
-        guard
-            let jpegData = NSBitmapImageRep(ciImage: ciImage)
-                .representation(using: .jpeg, properties: [:])
-        else {return}
-        
-        let url = URL(string: "https://localhost:9000/mask")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        
-        let task = URLSession.shared.uploadTask(with: request, from: jpegData) {
-            data, response, error in
-            guard
-                let response = response as? HTTPURLResponse,
-                (200...299).contains(response.statusCode),
-                error == nil,
-                let data = data
-            else {
+        DispatchQueue.global(qos: .background).async {
+            let request = VNCoreMLRequest(model: self.visionModel) { (request, error) in
+                self.dispatchSemaphore.signal()
+                
+                guard
+                    let observations = request.results as? [VNCoreMLFeatureValueObservation],
+                    let multiArray = observations.first?.featureValue.multiArrayValue
+                else {return}
+                
+                let height = multiArray.shape[0].intValue
+                let width = multiArray.shape[1].intValue
+                
+                var maskArray = [UInt8]()
+                for y in 0..<width {
+                    for x in 0..<height {
+                        let observedLabelValue = multiArray[y * height + x]
+                        maskArray.append(observedLabelValue == 0 ? 0 : 255)
+                    }
+                }
+                let maskCGImage = self.byteArrayToCGImage(raw: maskArray, w: width, h: height)!
+                let maskCIImage = CIImage(cgImage: maskCGImage)
+                let desiredSize = CGSize(width: 1280, height: 720)
+                
+                let mask = maskCIImage.applyingFilter("CILanczosScaleTransform", parameters: [
+                    "inputImage": maskCIImage,
+                    "inputScale": 1.0,
+                    "inputAspectRatio": Double(1280) / Double(720)
+                ])
+                self.mask = mask
+            }
+            request.imageCropAndScaleOption = .scaleFill
+            
+            let requestHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+            
+            // Ensure, that only one request is enqueued and that
+            // only the most recent request gets executed
+            self.mostRecentlyEnqueuedVNRequest = request
+            self.dispatchSemaphore.wait()
+            guard request == self.mostRecentlyEnqueuedVNRequest else {
+                self.dispatchSemaphore.signal()
                 return
             }
             
-            // Amplify neural decision values (0...1) to a black and white byte array (0...255)
-            let byteArray = [UInt8](data).map {$0 * 255}
-            var amplifiedData = Data(bytes: byteArray, count: byteArray.count)
-            amplifiedData.withUnsafeMutableBytes {
-                (bytes: UnsafeMutablePointer<UInt8>) -> Void in
-                let maskCGImage = self.byteArrayToCGImage(raw: bytes, w: width, h: height)!
-                let maskCIImage = CIImage(cgImage: maskCGImage)
-                self.mask = maskCIImage
-            }
+            try! requestHandler.perform([request])
         }
-        task.resume()
     }
 }

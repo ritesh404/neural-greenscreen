@@ -29,7 +29,7 @@ const fs = require('fs');
                 segmentation = await net.segmentPerson(image, {
                     flipHorizontal: false,
                     internalResolution: 'medium',
-                    segmentationThreshold: 0.7,
+                    segmentationThreshold: 0.4,
                 });
                 res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
                 res.write(Buffer.from(segmentation.data));

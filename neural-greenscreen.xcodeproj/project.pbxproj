@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		BE157A22245D71C100481624 /* VideoCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE157A21245D71C100481624 /* VideoCapture.swift */; };
+		BE2508AF24641B290040D866 /* DeepLabV3.mlmodel in Sources */ = {isa = PBXBuildFile; fileRef = BE2508AE24641B290040D866 /* DeepLabV3.mlmodel */; };
 		BE8832AC2454424600326232 /* CVPixelBuffer+Tools.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE8832AB2454424600326232 /* CVPixelBuffer+Tools.swift */; };
 		BEF5B53A2453D9CA00E7FC18 /* Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF5B5392453D9CA00E7FC18 /* Main.swift */; };
 		BEF5B53D2453DFA200E7FC18 /* CoreMediaIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BEF5B53C2453DFA200E7FC18 /* CoreMediaIO.framework */; };
@@ -23,6 +24,7 @@
 /* Begin PBXFileReference section */
 		BE143C202461C1BF0058B460 /* neural-greenscreen-Bridging-Header.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "neural-greenscreen-Bridging-Header.h"; sourceTree = "<group>"; };
 		BE157A21245D71C100481624 /* VideoCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoCapture.swift; sourceTree = "<group>"; };
+		BE2508AE24641B290040D866 /* DeepLabV3.mlmodel */ = {isa = PBXFileReference; lastKnownFileType = file.mlmodel; path = DeepLabV3.mlmodel; sourceTree = "<group>"; };
 		BE8832AB2454424600326232 /* CVPixelBuffer+Tools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CVPixelBuffer+Tools.swift"; sourceTree = "<group>"; };
 		BEF5B52F2453D9B300E7FC18 /* neuralGreenscreenMain.plugin */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = neuralGreenscreenMain.plugin; sourceTree = BUILT_PRODUCTS_DIR; };
 		BEF5B5322453D9B300E7FC18 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -109,6 +111,7 @@
 		BEF5B5312453D9B300E7FC18 /* neural-greenscreen */ = {
 			isa = PBXGroup;
 			children = (
+				BE2508AE24641B290040D866 /* DeepLabV3.mlmodel */,
 				BE143C202461C1BF0058B460 /* neural-greenscreen-Bridging-Header.h */,
 				BEF5B5322453D9B300E7FC18 /* Info.plist */,
 				BE157A27245D81A800481624 /* Graphics */,
@@ -195,6 +198,7 @@
 			files = (
 				BEF5B53F2453E8F500E7FC18 /* PluginInterface.swift in Sources */,
 				BEF5B5412453F50000E7FC18 /* Object.swift in Sources */,
+				BE2508AF24641B290040D866 /* DeepLabV3.mlmodel in Sources */,
 				BEF5B5452454003B00E7FC18 /* Log.swift in Sources */,
 				BE8832AC2454424600326232 /* CVPixelBuffer+Tools.swift in Sources */,
 				BE157A22245D71C100481624 /* VideoCapture.swift in Sources */,
