@@ -40,18 +40,14 @@ class Stream: NSObject, Object {
     let webcamFrameRate = 30
     
     private var mask: CIImage?
-    private var mostRecentlyEnqueuedVNRequest: VNRequest?
-    private let dispatchSemaphore = DispatchSemaphore(value: 1)
     private var sequenceNumber: UInt64 = 0
     private var queueAlteredProc: CMIODeviceStreamQueueAlteredProc?
     private var queueAlteredRefCon: UnsafeMutableRawPointer?
     
     private var backgroundImage: CIImage?
-    
-    private lazy var visionModel = try! VNCoreMLModel(for: DeepLabV3().model)
-    
+        
+    private lazy var model = DeepLabV3()
     private lazy var mtlDevice = MTLCreateSystemDefaultDevice()!
-    
     private lazy var capture = VideoCapture()
 
     private lazy var formatDescription: CMVideoFormatDescription? = {
@@ -193,13 +189,10 @@ extension Stream: VideoCaptureDelegate {
             let pixelBuffer = pixelBuffer
         else {return}
         
-        // Reduce battery impact
-        if sequenceNumber % UInt64(webcamFrameRate * 4) == 0 {
-            self.observeAsynchronously(onPixelBuffer: pixelBuffer)
-        }
+        let ciImage = CIImage(cvImageBuffer: pixelBuffer)
         
+        // Render mask into the image and dispatch the masked image
         if let mask = mask {
-            let ciImage = CIImage(cvImageBuffer: pixelBuffer)
             var parameters = [String: Any]()
             parameters["inputMaskImage"] = mask
             if let backgroundImage = backgroundImage {
@@ -212,8 +205,12 @@ extension Stream: VideoCaptureDelegate {
             let context = CIContext(mtlDevice: mtlDevice)
             context.render(maskedImage, to: pixelBuffer)
         }
-        
         self.dispatch(pixelBuffer: pixelBuffer, toStreamWithTiming: sampleTimingInfo)
+        
+        // Predict the mask once a second
+        if sequenceNumber % UInt64(webcamFrameRate) == 0 {
+            self.observeAsynchronously(onCIImage: ciImage)
+        }
     }
     
     func byteArrayToCGImage(
@@ -244,51 +241,54 @@ extension Stream: VideoCaptureDelegate {
         )
     }
     
-    func observeAsynchronously(onPixelBuffer pixelBuffer: CVPixelBuffer) {
-        DispatchQueue.global(qos: .background).async {
-            let request = VNCoreMLRequest(model: self.visionModel) { (request, error) in
-                self.dispatchSemaphore.signal()
-                
-                guard
-                    let observations = request.results as? [VNCoreMLFeatureValueObservation],
-                    let multiArray = observations.first?.featureValue.multiArrayValue
-                else {return}
-                
-                let height = multiArray.shape[0].intValue
-                let width = multiArray.shape[1].intValue
-                
-                var maskArray = [UInt8]()
-                for y in 0..<width {
-                    for x in 0..<height {
-                        let observedLabelValue = multiArray[y * height + x]
-                        maskArray.append(observedLabelValue == 0 ? 0 : 255)
-                    }
-                }
-                let maskCGImage = self.byteArrayToCGImage(raw: maskArray, w: width, h: height)!
-                let maskCIImage = CIImage(cgImage: maskCGImage)
-                let desiredSize = CGSize(width: 1280, height: 720)
-                
-                let mask = maskCIImage.applyingFilter("CILanczosScaleTransform", parameters: [
+    func observeAsynchronously(onCIImage ciImage: CIImage) {
+        DispatchQueue(label: "Neural Greenscreen Prediction Queue", qos: .background).async {
+            // Resize the passed image to a fitting 513x513 cvpixelbuffer
+            var pixelBuffer : CVPixelBuffer? = nil
+            guard CVPixelBufferCreate(
+                kCFAllocatorDefault,
+                513,
+                513,
+                kCVPixelFormatType_32BGRA,
+                nil,
+                &pixelBuffer
+            ) == noErr else {return}
+            let resizedImage = ciImage
+                .transformed(by: .init(scaleX: 513 / 1280, y: 513 / 720))
+                .cropped(to: .init(x: 0, y: 0, width: 513, height: 513))
+            let context = CIContext(mtlDevice: self.mtlDevice)
+            context.render(resizedImage, to: pixelBuffer!)
+        
+            guard let output = try? self.model.prediction(image: pixelBuffer!) else {return}
+            
+            let height = output.semanticPredictions.shape[0].intValue
+            let width = output.semanticPredictions.shape[1].intValue
+            
+            let intPointer = output.semanticPredictions
+                .dataPointer
+                .bindMemory(to: Int32.self, capacity: output.semanticPredictions.count)
+            let maskArray = Array(UnsafeBufferPointer(
+                start: intPointer,
+                count: output.semanticPredictions.count
+            )).map {UInt8($0 == 15 ? 255 : 0)}
+            
+            let maskCGImage = self.byteArrayToCGImage(raw: maskArray, w: width, h: height)!
+            let maskCIImage = CIImage(cgImage: maskCGImage)
+            
+            // Scale the image up to the desired size
+            let maskCIImageScaled = maskCIImage
+                .applyingFilter("CILanczosScaleTransform", parameters: [
                     "inputImage": maskCIImage,
-                    "inputScale": 1.0,
+                    "inputScale": Double(720) / Double(513),
                     "inputAspectRatio": Double(1280) / Double(720)
                 ])
-                self.mask = mask
-            }
-            request.imageCropAndScaleOption = .scaleFill
+            let maskCIImageBlurred = maskCIImageScaled
+                .applyingFilter("CIGaussianBlur", parameters: [
+                    "inputImage": maskCIImageScaled,
+                    "inputRadius": Double(4)
+                ])
             
-            let requestHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
-            
-            // Ensure, that only one request is enqueued and that
-            // only the most recent request gets executed
-            self.mostRecentlyEnqueuedVNRequest = request
-            self.dispatchSemaphore.wait()
-            guard request == self.mostRecentlyEnqueuedVNRequest else {
-                self.dispatchSemaphore.signal()
-                return
-            }
-            
-            try! requestHandler.perform([request])
+            self.mask = maskCIImageBlurred
         }
     }
 }
